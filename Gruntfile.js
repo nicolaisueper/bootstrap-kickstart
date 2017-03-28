@@ -2,13 +2,17 @@
 
 var getTasks = require('load-grunt-tasks');
 var displayTime = require('time-grunt');
-var templateHelpers = require('./templates/helpers/helpers.js');
+var templateHelpers = require('./src/templates/helpers/helpers.js');
 
-// Returns a list of all css files defined in the property bundleCSS of package.json
+/*
+ * Returns a list of all css files defined in the property bundleCSS of package.json
+ * Use to bundle and minify them and use them for the development server and
+ * for the production build.
+ */
 function getBundleCSSFiles(packageJson) {
 	var basePath = 'node_modules/';
-	return Object.keys(packageJson.bundleCSS).map(function (dependencyKey) {
-		return packageJson.bundleCSS[dependencyKey].map(function (relativeCSSFilePath) {
+	return Object.keys(packageJson.bootstrapKickstart.bundleCSS).map(function (dependencyKey) {
+		return packageJson.bootstrapKickstart.bundleCSS[dependencyKey].map(function (relativeCSSFilePath) {
 			return basePath + dependencyKey + '/' + relativeCSSFilePath;
 		});
 	}).reduce(function (left, right) {
@@ -16,10 +20,22 @@ function getBundleCSSFiles(packageJson) {
 	}, []);
 }
 
+/*
+ * Returns a list of all globs defined in the property `includeStaticFiles` of package.json
+ * Used to copy files to development server and to the production build.
+ */
+function getStaticFiles(packageJson) {
+	var basePath = 'node_modules/';
+	return packageJson.bootstrapKickstart.includeStaticFiles.map(function (glob) {
+		return basePath + glob;
+	});
+}
+
 module.exports = function (grunt) {
 	// Add frontend dependencies from package.json for adding its css files
 	var packageJson = grunt.file.readJSON('package.json');
 	var bundleCSSFiles = getBundleCSSFiles(packageJson);
+	var staticFiles = getStaticFiles(packageJson);
 
 	// Get devDependencies
 	getTasks(grunt, {
@@ -41,7 +57,12 @@ module.exports = function (grunt) {
 			dist: 'dist',
 			reports: 'reports',
 			docs: 'docs',
-			server: 'server'
+			server: 'server',
+			banner: '/*! <%= pkg.title %> - v<%= pkg.version %>\n' +
+					' * <%= pkg.author.email %>\n' +
+					' * Copyright ©<%= grunt.template.today("yyyy") %> <%= pkg.author.name %>\n' +
+					' * <%= grunt.template.today("yyyy-mm-dd") %>\n' +
+					' */'
 		},
 
 		// List available tasks
@@ -55,12 +76,12 @@ module.exports = function (grunt) {
 						'serve',
 						'watch',
 						'build',
-						'checkBuild',
+						'build:check',
 						'jsdoc',
 						'sync',
-						'releasePatch',
-						'releaseMinor',
-						'releaseMajor',
+						'release:patch',
+						'release:minor',
+						'release:major',
 						'lint',
 						'lint:fix'
 					],
@@ -73,7 +94,7 @@ module.exports = function (grunt) {
 					},
 					groups: {
 						Dev: ['default', 'dev', 'sync', 'serve', 'watch', 'jsdoc', 'lint', 'lint:fix'],
-						Production: ['build', 'checkBuild', 'releasePatch', 'releaseMinor', 'releaseMajor']
+						Production: ['build', 'build:check', 'release:patch', 'release:minor', 'release:major']
 					},
 					sort: [
 						'default',
@@ -85,10 +106,10 @@ module.exports = function (grunt) {
 						'lint',
 						'eslint:fix',
 						'build',
-						'checkBuild',
-						'releasePatch',
-						'releaseMinor',
-						'releaseMajor'
+						'build:check',
+						'release:patch',
+						'release:minor',
+						'release:major'
 					]
 				}
 			}
@@ -96,13 +117,16 @@ module.exports = function (grunt) {
 
 		// ESLint
 		eslint: {
+			options: {
+				ignorePattern: '!.postinstall.js'
+			},
 			check: {
 				files: {
 					src: [
 						'.postinstall.js',
-						'templates/helpers/helpers.js',
+						'src/templates/helpers/helpers.js',
 						'Gruntfile.js',
-						'assets/js/*.js'
+						'src/app/*.js'
 					]
 				}
 			},
@@ -119,11 +143,7 @@ module.exports = function (grunt) {
 		// Uglify
 		uglify: {
 			options: {
-				banner: '/*! <%= pkg.title %> - v<%= pkg.version %>\n' +
-						' * <%= pkg.author.email %>\n' +
-						' * Copyright ©<%= grunt.template.today("yyyy") %> <%= pkg.author.name %>\n' +
-						' * <%= grunt.template.today("yyyy-mm-dd") %>\n' +
-						' */',
+				banner: '<%= config.banner %>\n',
 				sourceMap: true,
 				sourceMapIncludeSources: true,
 				compress: {
@@ -136,10 +156,9 @@ module.exports = function (grunt) {
 					sourceMap: false
 				},
 				files: {
-					'<%= config.dist %>/assets/js/built.min.js': [
-						'server/assets/js/vendor.js',
-						// Same as client.js but without sourceMaps
-						'server/assets/js/client.min.js'
+					'<%= config.dist %>/app/built.min.js': [
+						'<%= config.server %>/app/vendor.js',
+						'<%= config.server %>/app/client.js'
 					]
 				}
 			}
@@ -150,12 +169,12 @@ module.exports = function (grunt) {
 			dev: {
 				options: {
 					sourceMap: true,
-					sourceMapFilename: 'assets/css/index_raw.css.map',
+					sourceMapFilename: 'src/assets/css/index_raw.css.map',
 					sourceMapURL: 'index_raw.css.map',
 					sourceMapRootpath: '../../'
 				},
 				files: {
-					'assets/css/index_raw.css': 'assets/less/index.less'
+					'src/assets/css/index_raw.css': 'src/assets/less/index.less'
 				}
 			}
 		},
@@ -173,14 +192,14 @@ module.exports = function (grunt) {
 				map: true
 			},
 			dev: {
-				src: 'assets/css/index_raw.css',
-				dest: 'assets/css/index.css'
+				src: 'src/assets/css/index_raw.css',
+				dest: 'src/assets/css/index.css'
 			}
 		},
 
 		clean: {
-			less: ['assets/css/index_raw.*'],
-			js: ['assets/js/**/*min.js*'],
+			less: ['src/assets/css/index_raw.*'],
+			js: ['src/app/**/*min.js*'],
 			dist: ['<%= config.dist %>'],
 			server: ['<%= config.server %>'],
 			temp: ['temp']
@@ -251,7 +270,7 @@ module.exports = function (grunt) {
 				},
 				files: {
 					'<%= config.dist %>/assets/css/index.uncss.min.css': ['temp/index.css'],
-					'<%= config.dist %>/assets/css/index.min.css': ['assets/css/index.css']
+					'<%= config.dist %>/assets/css/index.min.css': ['src/assets/css/index.css']
 				}
 			},
 			npmLibsProduction: {
@@ -267,7 +286,7 @@ module.exports = function (grunt) {
 					keepSpecialComments: 0
 				},
 				files: {
-					'<%= config.server %>/assets/css/libs.min.css': bundleCSSFiles
+					'<%= config.server %>/node_modules/libs.min.css': bundleCSSFiles
 				}
 			}
 		},
@@ -275,11 +294,7 @@ module.exports = function (grunt) {
 		usebanner: {
 			assets: {
 				options: {
-					banner: '/*! <%= pkg.title %> - v<%= pkg.version %>\n' +
-						' * <%= pkg.author.email %>\n' +
-						' * Copyright ©<%= grunt.template.today("yyyy") %> <%= pkg.author.name %>\n' +
-						' * <%= grunt.template.today("yyyy-mm-dd") %>\n' +
-						' */'
+					banner: '<%= config.banner %>'
 				},
 				files: {
 					src: [
@@ -295,7 +310,7 @@ module.exports = function (grunt) {
 				options: {},
 				files: [{
 					expand: true,
-					cwd: 'assets/img',
+					cwd: 'src/assets/img',
 					src: ['**/*.{png,jpg,gif,svg}'],
 					dest: '<%= config.dist %>/assets/img'
 				}]
@@ -320,41 +335,39 @@ module.exports = function (grunt) {
 		copy: {
 			dist: {
 				expand: true,
+				cwd: 'src',
 				src: [
 					'assets/css/*.min.css',
-					'assets/fonts/**/*',
-					'node_modules/bootstrap/fonts/**/*'
+					'assets/fonts/**/*'
 				],
+				dest: '<%= config.dist %>/'
+			},
+			distFilesFromLibs: {
+				expand: true,
+				src: staticFiles,
 				dest: '<%= config.dist %>/'
 			},
 			server: {
 				expand: true,
+				cwd: 'src',
 				src: [
 					'assets/css/**/*',
-					// 'assets/js/**/*',
 					'assets/fonts/**/*',
-					'assets/img/**/*',
-					'node_modules/bootstrap/fonts/**/*'
+					'assets/img/**/*'
 				],
-				// ].concat(dependencyConfiguration.getDependenciesFileList()),
 				dest: '<%= config.server %>/'
 			},
-			handlebars: {
+			serverFilesFromLibs: {
 				expand: true,
-				src: [
-					'*.hbs',
-					'templates/*.hbs',
-					'partials/**/*.hbs',
-					'templates/helpers/helpers.js'
-				],
-				dest: '<%= config.dist %>/handlebarsSources'
+				src: staticFiles,
+				dest: '<%= config.server %>/'
 			}
 		},
 		jsdoc: {
 			dist: {
 				src: [
-					'assets/js/**/*.js',
-					'!assets/js/**/*.min.js',
+					'src/app/**/*.js',
+					'!src/app/**/*.min.js',
 					'test/**/*.js'
 				],
 				options: {
@@ -371,7 +384,7 @@ module.exports = function (grunt) {
 						'<%= config.server %>/assets/img/**/*.jpg',
 						'<%= config.server %>/assets/img/**/*.png',
 						'<%= config.server %>/assets/img/**/*.gif',
-						'<%= config.server %>/assets/js/**/*.js',
+						'<%= config.server %>/app/**/*.js',
 						'<%= config.server %>/*.html'
 					]
 				},
@@ -380,29 +393,6 @@ module.exports = function (grunt) {
 							'<%= connect.dev.options.port %>',
 					watchTask: true
 				}
-			}
-		},
-
-		compress: {
-			dist: {
-				options: {
-					archive: 'dist-v<%= pkg.version %>.zip'
-				},
-				files: [{
-					src: ['<%= config.dist %>/**'],
-					dest: './'
-				}]
-			},
-			src: {
-				options: {
-					archive: 'src-v<%= pkg.version %>.zip'
-				},
-				files: [
-					// Includes files in path
-					{src: ['./*', '!./*.zip', '!./*.sublime*'], dest: './', filter: 'isFile'},
-					// Includes files in path and its subdirs
-					{src: ['assets/**', '!assets/css/**'], dest: './'}
-				]
 			}
 		},
 
@@ -489,14 +479,14 @@ module.exports = function (grunt) {
 		generator: {
 			dev: {
 				files: [{
-					cwd: '.',
+					cwd: './src',
 					src: ['*.hbs'],
 					dest: '<%= config.server %>'
 				}],
 				options: {
 					helpers: templateHelpers,
-					partialsGlob: 'partials/**/*.hbs',
-					templates: 'templates',
+					partialsGlob: 'src/partials/**/*.hbs',
+					templates: 'src/templates',
 					templateExt: 'hbs',
 					defaultTemplate: 'default',
 					frontmatterType: 'yaml'
@@ -530,28 +520,28 @@ module.exports = function (grunt) {
 				livereload: true
 			},
 			scripts: {
-				files: ['assets/js/**/*.js'],
+				files: ['src/app/**/*.js'],
 				tasks: ['newer:eslint:fix', 'newer:copy:server', 'newer:browserify:clientDevelopment'],
 				options: {
 					spawn: false
 				}
 			},
 			otherJsFiles: {
-				files: ['Gruntfile.js', '.postinstall.js', 'templates/helpers/helpers.js'],
+				files: ['Gruntfile.js', '.postinstall.js', 'src/templates/helpers/helpers.js'],
 				tasks: ['eslint:fix'],
 				options: {
 					spawn: false
 				}
 			},
 			css: {
-				files: ['assets/less/**/*.less'],
+				files: ['src/assets/less/**/*.less'],
 				tasks: ['less:dev', 'autoprefixer', 'clean:less', 'newer:copy:server'],
 				options: {
 					spawn: false
 				}
 			},
 			html: {
-				files: ['*.hbs', 'templates/*.hbs', 'partials/*.hbs', 'templates/helpers/helpers.js'],
+				files: ['src/*.hbs', 'src/templates/*.hbs', 'src/partials/*.hbs', 'src/templates/helpers/helpers.js'],
 				tasks: ['generator', 'newer:htmllint', 'newer:bootlint'],
 				options: {
 					spawn: false
@@ -566,44 +556,39 @@ module.exports = function (grunt) {
 		browserify: {
 			vendor: {
 				src: [],
-				dest: 'server/assets/js/vendor.js',
+				dest: '<%= config.server %>/app/vendor.js',
 				options: {
-					// Maybe we could automize this by using dependencies from package.json
-					require: ['jquery']
+					require: packageJson.bootstrapKickstart.bundleExternalJS
 				}
 			},
 			clientDevelopment: {
-				src: ['assets/js/**/*.js'],
-				dest: 'server/assets/js/client.js',
+				src: ['src/app/**/*.js'],
+				dest: '<%= config.server %>/app/client.js',
 				options: {
 					browserifyOptions: {
 						debug: true
 					},
 					transform: [
 						['babelify', {
-							sourceMaps: true,
-							presets: ['es2015', 'react']
+							sourceMaps: true
 						}]
 					],
-					// Maybe we could automize this by using dependencies from package.json
-					external: ['jquery']
+					external: packageJson.bootstrapKickstart.bundleExternalJS
 				}
 			},
 			clientProduction: {
-				src: ['assets/js/**/*.js'],
-				dest: 'server/assets/js/client.min.js',
+				src: ['src/app/**/*.js'],
+				dest: '<%= config.server %>/app/client.js',
 				options: {
 					browserifyOptions: {
 						debug: false
 					},
 					transform: [
 						['babelify', {
-							sourceMaps: false,
-							presets: ['es2015', 'react']
+							sourceMaps: false
 						}]
 					],
-					// Maybe we could automize this by using dependencies from package.json
-					external: ['jquery']
+					external: packageJson.bootstrapKickstart.bundleExternalJS
 				}
 			}
 		},
@@ -613,13 +598,13 @@ module.exports = function (grunt) {
 				options: {
 					algorithm: 'sha512',
 					length: 8,
-					baseDir: 'server/',
-					assets: ['**/*.js', '**/*.css'],
+					baseDir: '<%= config.server %>/',
+					assets: ['src/**/*.js', 'src/**/*.css'],
 					queryString: true
 				},
 				files: [{
 					expand: true,
-					cwd: 'server/',
+					cwd: '<%= config.server %>/',
 					src: ['*.html']
 				}]
 			},
@@ -629,7 +614,7 @@ module.exports = function (grunt) {
 					algorithm: 'sha512',
 					length: 8,
 					baseDir: 'dist/',
-					assets: ['**/*.js', '**/*.css'],
+					assets: ['src/**/*.js', 'src/**/*.css'],
 					queryString: true
 				},
 				files: [{
@@ -675,6 +660,7 @@ module.exports = function (grunt) {
 			'autoprefixer',
 			'clean:less',
 			'copy:server',
+			'copy:serverFilesFromLibs',
 			'browserify:vendor',
 			'browserify:clientDevelopment',
 			'generator',
@@ -728,8 +714,8 @@ module.exports = function (grunt) {
 			'less:dev',
 			'autoprefixer',
 			'clean:less',
-			'uncss',
-			'cssmin:assets',
+			'copy:server',
+			'cssmin',
 			'imagemin',
 			'generator',
 			'processhtml',
@@ -738,7 +724,7 @@ module.exports = function (grunt) {
 			'browserify:clientProduction',
 			'copy',
 			'uglify:browserifyOutput',
-			'cssmin:npmLibsProduction',
+			'uncss',
 			'usebanner',
 			'clean:temp',
 			'jsdoc',
@@ -748,24 +734,53 @@ module.exports = function (grunt) {
 	);
 
 	// Start server to check production build
-	grunt.registerTask('checkBuild',
-		'`grunt checkBuild` starts a local server to make it possible to check ' +
+	grunt.registerTask('build:check',
+		'`grunt build:check` starts a local server to make it possible to check ' +
 		'the build in the browser.',
 		['connect:dist']
 	);
+
+	// Alias `checkBuild` to `grunt build:check` for »backward compatability«.
+	grunt.registerTask('checkBuild', ['build:check']);
+
 	// Relase tasks
-	grunt.registerTask('releasePatch',
-		'`grunt releasePatch` builds the current sources, bumps version number (0.0.1) and creates zip.files.',
-		['bump-only:patch', 'build', 'clean:js', 'changelog', 'gitadd', 'bump-commit', 'compress']
+	grunt.registerTask('release:patch',
+		'`grunt release:patch` builds the current sources and bumps version number (0.0.1).',
+		[
+			'bump-only:patch',
+			'build',
+			'clean:js',
+			'changelog',
+			'gitadd',
+			'bump-commit'
+		]
 	);
-	grunt.registerTask('releaseMinor',
-		'`grunt releaseMinor` builds the current sources, bumps version number (0.1.0) and creates zip.files.',
-		['bump-only:minor', 'build', 'clean:js', 'changelog', 'gitadd', 'bump-commit', 'compress']
+	grunt.registerTask('release:minor',
+		'`grunt release:minor` builds the current sources and bumps version number (0.1.0).',
+		[
+			'bump-only:minor',
+			'build',
+			'clean:js',
+			'changelog',
+			'gitadd',
+			'bump-commit'
+		]
 	);
-	grunt.registerTask('releaseMajor',
-		'`grunt releaseMajor` builds the current sources, bumps version number (1.0.0) and creates zip.files.',
-		['bump-only:major', 'build', 'clean:js', 'changelog', 'gitadd', 'bump-commit', 'compress']
+	grunt.registerTask('release:major',
+		'`grunt release:major` builds the current sources and bumps version number (1.0.0).',
+		[
+			'bump-only:major',
+			'build',
+			'clean:js',
+			'changelog',
+			'gitadd',
+			'bump-commit'
+		]
 	);
+	// Aliases for »backward compatability«.
+	grunt.registerTask('releasePatch', ['release:patch']);
+	grunt.registerTask('releaseMinor', ['release:minor']);
+	grunt.registerTask('releaseMajor', ['release:major']);
 
 	// Security checks
 	grunt.registerTask('security',
